@@ -11,3 +11,6 @@ venv*/
 *.log
 lint*.txt
 *.swp
+.env
+.garmin_session/
+test_export/

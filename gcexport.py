@@ -39,9 +39,10 @@ from platform import python_version
 from subprocess import call
 from timeit import default_timer as timer
 from urllib.error import HTTPError
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode
 
 # PyPI imports
+from dotenv import load_dotenv
 from garminconnect.client import Client as GarminClient
 from garminconnect.exceptions import GarminConnectConnectionError
 
@@ -209,18 +210,20 @@ def http_req(url, post=None, headers=None):
     if _garmin_client is None:
         raise GarminException('Not authenticated')
 
-    path = _path_from_url(url)
+    path, _, query = _path_from_url(url).partition('?')
+    # garminconnect rejects query strings in the path, they must be passed as params
+    params = parse_qsl(query, keep_blank_values=True) if query else None
     extra_headers = headers or {}
 
     try:
         if post is None and path.startswith('download-service/'):
-            return _garmin_client.download(path, headers=extra_headers)
+            return _garmin_client.download(path, headers=extra_headers, params=params)
 
         if post is not None:
             post_data = urlencode(post).encode('utf-8') if isinstance(post, dict) else post
-            resp = _garmin_client.request('POST', 'connectapi', path, headers=extra_headers, data=post_data)
+            resp = _garmin_client.request('POST', 'connectapi', path, headers=extra_headers, params=params, data=post_data)
         else:
-            resp = _garmin_client.request('GET', 'connectapi', path, headers=extra_headers)
+            resp = _garmin_client.request('GET', 'connectapi', path, headers=extra_headers, params=params)
 
     except GarminConnectConnectionError as ex:
         msg = str(ex)
@@ -510,9 +513,10 @@ def login_to_garmin_connect(args):
             login_required = True
 
         if login_required:
-            username = args.username if args.username else input('Username: ')
-            password = args.password if args.password else getpass()
-            _garmin_client.login(username, password)
+            load_dotenv()  # optional .env with GARMIN_USERNAME / GARMIN_PASSWORD
+            username = args.username or os.environ.get('GARMIN_USERNAME') or input('Username: ')
+            password = args.password or os.environ.get('GARMIN_PASSWORD') or getpass()
+            _garmin_client.login(username, password, prompt_mfa=lambda: input('MFA code: ').strip())
 
             # try to store data if a session directory was given
             if session_directory:
